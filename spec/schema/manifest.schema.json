@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielgerlag/agent-native-durable-runtime/spec/schema/manifest.schema.json",
+  "title": "durable_session.checkpoint manifest v0",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "format",
+    "checkpoint_version",
+    "session_id",
+    "event_head",
+    "files",
+    "derived"
+  ],
+  "properties": {
+    "format": {
+      "const": "durable_session.checkpoint"
+    },
+    "checkpoint_version": {
+      "type": "integer",
+      "const": 0
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gen_ai.conversation.id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exported_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_head": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "workspace_head": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rev", "tree"],
+          "properties": {
+            "rev": { "type": "integer", "minimum": 1 },
+            "tree": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": ["transcript"],
+      "properties": {
+        "transcript": { "type": "string" },
+        "trees": { "type": "string" },
+        "blobs": { "type": "string" },
+        "workspace": { "type": "string" },
+        "ledger_view": { "type": "string" }
+      }
+    },
+    "derived": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

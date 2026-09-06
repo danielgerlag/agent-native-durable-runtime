@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielgerlag/agent-native-durable-runtime/spec/schema/view.schema.json",
+  "title": "durable_session.checkpoint canonical view v0",
+  "description": "Derived projection used by cross-language conformance. Not stored in the bundle. Importers ignore views/ and rebuild this from transcript.ndjson.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "event_head", "messages", "ledger", "workspace_head"],
+  "properties": {
+    "session_id": { "type": "string", "minLength": 1 },
+    "event_head": { "type": "integer", "minimum": 0 },
+    "workspace_head": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rev", "tree"],
+          "properties": {
+            "rev": { "type": "integer", "minimum": 1 },
+            "tree": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/user" },
+          { "$ref": "#/$defs/system" },
+          { "$ref": "#/$defs/assistant" },
+          { "$ref": "#/$defs/tool" }
+        ]
+      }
+    },
+    "ledger": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ledger_row" }
+    }
+  },
+  "$defs": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content", "op"],
+      "properties": {
+        "role": { "const": "user" },
+        "content": { "type": "string" },
+        "op": { "type": "string" }
+      }
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content", "op"],
+      "properties": {
+        "role": { "const": "system" },
+        "content": { "type": "string" },
+        "op": { "type": "string" }
+      }
+    },
+    "assistant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content", "turn", "finish_reason", "tool_calls"],
+      "properties": {
+        "role": { "const": "assistant" },
+        "content": { "type": "string" },
+        "turn": { "type": "string" },
+        "finish_reason": {
+          "enum": ["stop", "length", "tool_calls", "truncated_crash", "error"]
+        },
+        "model": { "type": ["string", "null"] },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "arguments"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "arguments": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "call_id", "name", "status"],
+      "properties": {
+        "role": { "const": "tool" },
+        "call_id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": {
+          "enum": ["pending", "applied", "failed", "abandoned"]
+        },
+        "result_text": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] }
+      }
+    },
+    "ledger_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id", "tool", "args_hash", "status", "policy"],
+      "properties": {
+        "call_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "args_hash": { "type": "string" },
+        "status": {
+          "enum": ["pending", "applied", "failed", "abandoned"]
+        },
+        "policy": { "enum": ["idempotent", "at_most_once"] },
+        "result_ref": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

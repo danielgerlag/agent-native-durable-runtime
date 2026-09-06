@@ -1,0 +1,10 @@
+[
+  {
+    "tool": "idempotent_write",
+    "args_hash": "b5093e74a97d34c448e39486c4788577d65e14deabd3722b3603ceef3e45f68f",
+    "result_ref": null,
+    "status": "applied",
+    "gen_ai.tool.call.id": "call_write",
+    "policy": "idempotent"
+  }
+]

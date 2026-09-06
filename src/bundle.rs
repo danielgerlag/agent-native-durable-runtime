@@ -316,7 +316,7 @@ fn event_to_wire(event: &Event) -> Result<Option<Map<String, Value>>, Error> {
     Ok(Some(m))
 }
 
-fn wire_to_event(v: &Value) -> Result<Event, Error> {
+pub(crate) fn wire_to_event(v: &Value) -> Result<Event, Error> {
     let ty = v
         .get("type")
         .and_then(|t| t.as_str())

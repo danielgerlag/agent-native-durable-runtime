@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielgerlag/agent-native-durable-runtime/spec/schema/event.schema.json",
+  "title": "durable_session.checkpoint transcript event v0",
+  "oneOf": [
+    { "$ref": "#/$defs/user" },
+    { "$ref": "#/$defs/system" },
+    { "$ref": "#/$defs/assistant_delta" },
+    { "$ref": "#/$defs/assistant_sealed" },
+    { "$ref": "#/$defs/workspace_snapshot" },
+    { "$ref": "#/$defs/tool_pending" },
+    { "$ref": "#/$defs/tool_applied" },
+    { "$ref": "#/$defs/tool_failed" },
+    { "$ref": "#/$defs/tool_abandoned" }
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": ["seq", "t", "type"],
+      "properties": {
+        "seq": { "type": "integer", "minimum": 1 },
+        "t": { "type": "string", "minLength": 1 },
+        "type": { "type": "string" }
+      }
+    },
+    "user": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "role", "content", "op"],
+          "properties": {
+            "type": { "const": "user" },
+            "role": { "const": "user" },
+            "content": { "type": "string" },
+            "op": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "system": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "role", "content", "op"],
+          "properties": {
+            "type": { "const": "system" },
+            "role": { "const": "system" },
+            "content": { "type": "string" },
+            "op": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "assistant_delta": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "turn"],
+          "properties": {
+            "type": { "const": "assistant_delta" },
+            "turn": { "type": "string", "minLength": 1 },
+            "text": { "type": "string" },
+            "tool_call": { "$ref": "#/$defs/tool_call_delta" }
+          },
+          "anyOf": [
+            { "required": ["text"] },
+            { "required": ["tool_call"] }
+          ]
+        }
+      ]
+    },
+    "tool_call_delta": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "args_delta": { "type": "string" }
+      }
+    },
+    "assistant_sealed": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "turn", "finish_reason"],
+          "properties": {
+            "type": { "const": "assistant_sealed" },
+            "turn": { "type": "string", "minLength": 1 },
+            "finish_reason": {
+              "enum": ["stop", "length", "tool_calls", "truncated_crash", "error"]
+            },
+            "gen_ai.request.model": { "type": "string" },
+            "gen_ai.usage.input_tokens": { "type": "integer" },
+            "gen_ai.usage.output_tokens": { "type": "integer" }
+          }
+        }
+      ]
+    },
+    "workspace_snapshot": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "rev", "tree"],
+          "properties": {
+            "type": { "const": "workspace_snapshot" },
+            "rev": { "type": "integer", "minimum": 1 },
+            "tree": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "tool_pending": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "gen_ai.tool.call.id",
+            "gen_ai.tool.name",
+            "args_hash",
+            "args",
+            "policy",
+            "workspace_rev"
+          ],
+          "properties": {
+            "type": { "const": "tool_pending" },
+            "gen_ai.tool.call.id": { "type": "string", "minLength": 1 },
+            "gen_ai.tool.name": { "type": "string", "minLength": 1 },
+            "args_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "args": true,
+            "policy": { "enum": ["idempotent", "at_most_once"] },
+            "workspace_rev": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "tool_applied": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "gen_ai.tool.call.id", "workspace_rev"],
+          "properties": {
+            "type": { "const": "tool_applied" },
+            "gen_ai.tool.call.id": { "type": "string", "minLength": 1 },
+            "result_ref": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "result_text": { "type": "string" },
+            "workspace_rev": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "tool_failed": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "gen_ai.tool.call.id", "error"],
+          "properties": {
+            "type": { "const": "tool_failed" },
+            "gen_ai.tool.call.id": { "type": "string", "minLength": 1 },
+            "error": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "tool_abandoned": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "gen_ai.tool.call.id", "reason"],
+          "properties": {
+            "type": { "const": "tool_abandoned" },
+            "gen_ai.tool.call.id": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

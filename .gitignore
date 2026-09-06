@@ -5,6 +5,11 @@
 /tmp
 /.durable
 /demo-run
+__pycache__/
+*.pyc
+/python/.venv
+/typescript/node_modules
+/typescript/dist
 **/*.db
 **/*.db-wal
 **/*.db-shm

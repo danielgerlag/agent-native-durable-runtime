@@ -1,8 +1,10 @@
 # Session checkpoint spec v0
 
-Format name: `durable_session.checkpoint`. Encoding: JSON. This document is reference. It describes the on-disk bundle, not how to write a harness.
+Format name: `durable_session.checkpoint`. Encoding: JSON. A checkpoint is a directory.
 
-A checkpoint is a directory. Zip it if you need a single file. Readers that do not run this crate can still parse the files.
+The JSON Schema files in `spec/schema/` are normative. This page is the readable companion. If prose and schema disagree, the schema wins.
+
+Readers that do not run the Rust crate parse these files. Python and TypeScript packages in this repository do that. They do not open SQLite and they do not take a lease.
 
 ## Layout
 
@@ -15,63 +17,42 @@ views/ledger.json
 workspace/
 ```
 
-`transcript.ndjson` is the source of truth for conversation, tool calls, and workspace revisions. `views/` and `workspace/` are derived. Importers ignore derived files and rebuild them from the transcript plus blobs.
+`transcript.ndjson` is the source of truth for conversation, tool calls, and workspace revisions. Paths listed in `manifest.derived` are convenience materializations. Importers ignore them and rebuild from the transcript plus blobs.
 
-Lease state is not part of the bundle. Ownership is a process fact.
+Lease state is not in the bundle. Ownership is a process fact.
+
+## Schemas
+
+| File | Validates |
+| --- | --- |
+| `spec/schema/manifest.schema.json` | `manifest.json` |
+| `spec/schema/event.schema.json` | each line of `transcript.ndjson` |
+| `spec/schema/tree.schema.json` | `trees/<sha256>.json` |
+| `spec/schema/view.schema.json` | the canonical projection, not a file in the bundle |
+
+The canonical view is what every language must emit from `load(path).view()`. Golden output lives next to the fixture as `fixtures/v0/<name>.view.json`.
 
 ## `manifest.json`
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `format` | string | `durable_session.checkpoint` |
-| `checkpoint_version` | u32 | `0` |
-| `session_id` | string | Session id |
-| `gen_ai.conversation.id` | string | Same value as `session_id`. OTel attribute name reused as a label. |
-| `created_at` | string | RFC3339 of session creation |
-| `exported_at` | string | RFC3339 of this export |
-| `event_head` | u64 | Seq of the last event in `transcript.ndjson` |
-| `workspace_head` | object or null | `{ "rev": u64, "tree": "sha256:<hex>" }` |
-| `files` | object | Relative paths of the other files |
-| `derived` | string[] | Paths the importer must ignore |
+Required: `format` = `durable_session.checkpoint`, `checkpoint_version` = `0`, `session_id`, `event_head`, `files.transcript`, `derived`.
 
-Example:
+`event_head` is the `seq` of the last transcript line. `workspace_head` is `{ "rev": u64, "tree": "sha256:<hex>" }` or `null`.
 
-```json
-{
-  "format": "durable_session.checkpoint",
-  "checkpoint_version": 0,
-  "session_id": "sess_demo",
-  "gen_ai.conversation.id": "sess_demo",
-  "created_at": "2026-09-05T12:00:00.000Z",
-  "exported_at": "2026-09-05T12:05:00.000Z",
-  "event_head": 8,
-  "workspace_head": { "rev": 2, "tree": "sha256:ab" },
-  "files": {
-    "transcript": "transcript.ndjson",
-    "trees": "trees/",
-    "blobs": "blobs/",
-    "workspace": "workspace/",
-    "ledger_view": "views/ledger.json"
-  },
-  "derived": ["workspace/", "views/ledger.json"]
-}
-```
+`gen_ai.conversation.id` is the same string as `session_id`. That is an OpenTelemetry attribute name reused as a label.
 
 ## `transcript.ndjson`
 
-One event per line, seq order, discriminator `type`. Field names reuse OpenTelemetry GenAI attribute names where they name the same fact. The transcript is not an OTel `gen_ai.client.inference.operation.details` payload. That event is one inference operation. This file is the session log.
+One event per line, `seq` starting at 1 with no gaps. Discriminator is `type`. Envelope fields are `seq` and `t` (RFC3339).
 
-Common envelope: `seq` (u64, starts at 1), `t` (RFC3339).
-
-| `type` | Fields |
+| `type` | Required fields |
 | --- | --- |
 | `system` | `role`=`system`, `content`, `op` |
 | `user` | `role`=`user`, `content`, `op` |
-| `assistant_delta` | `turn`, `text` and/or `tool_call` `{id, name, args_delta}` |
+| `assistant_delta` | `turn`, and `text` and/or `tool_call` `{id, name, args_delta}` |
 | `assistant_sealed` | `turn`, `finish_reason`, optional `gen_ai.request.model`, optional usage ints |
 | `workspace_snapshot` | `rev`, `tree` (`sha256:<hex>`) |
 | `tool_pending` | `gen_ai.tool.call.id`, `gen_ai.tool.name`, `args_hash`, `args`, `policy`, `workspace_rev` |
-| `tool_applied` | `gen_ai.tool.call.id`, `result_ref` or `result_text`, `workspace_rev` |
+| `tool_applied` | `gen_ai.tool.call.id`, `workspace_rev`, optional `result_ref` or `result_text` |
 | `tool_failed` | `gen_ai.tool.call.id`, `error` |
 | `tool_abandoned` | `gen_ai.tool.call.id`, `reason` |
 
@@ -81,44 +62,20 @@ Common envelope: `seq` (u64, starts at 1), `t` (RFC3339).
 
 `args_hash` is lowercase hex SHA-256 of canonical JSON args (object keys sorted, no insignificant whitespace).
 
+Unknown `type` is an error. A seq gap is an error.
+
 ## Trees and blobs
 
-`trees/<sha256>.json`:
-
-```json
-{
-  "v": 0,
-  "entries": [
-    { "path": "README.md", "type": "file", "blob": "sha256:…", "mode": 33188, "size": 120 }
-  ]
-}
-```
-
-`type` is `file` or `symlink`. File bytes live at `blobs/<first two hex chars>/<full hex>`. The tree object itself is also a blob whose hash matches the filename.
-
-## `views/ledger.json`
-
-Convenience projection. Importers ignore it.
-
-```json
-[
-  {
-    "tool": "write_file",
-    "args_hash": "…",
-    "result_ref": "sha256:…",
-    "status": "applied",
-    "gen_ai.tool.call.id": "c1",
-    "policy": "idempotent"
-  }
-]
-```
-
-`status` is `pending` | `applied` | `failed` | `abandoned`.
+`trees/<sha256>.json` matches `tree.schema.json`. File bytes live at `blobs/<first two hex chars>/<full hex>`. The tree object is also a blob whose hash matches the filename (without `.json`).
 
 ## Import rules
 
 1. Reject `checkpoint_version` other than `0`.
-2. Read `transcript.ndjson` in order. Parse each line into a domain event. Fail the import on an unknown `type` or a seq gap.
-3. Copy blobs by hash. A referenced hash that is missing is corrupt.
-4. Ignore `derived` paths.
-5. Do not take a lease. The next `Session::open` for that `session_id` is resume.
+2. Read `transcript.ndjson` in order. Fail on an unknown `type` or a seq gap.
+3. Ignore `derived` paths.
+4. Do not take a lease.
+5. The canonical view is folded from the transcript. Do not trust `views/`.
+
+## Golden fixtures
+
+`fixtures/v0/tools/` is a valid bundle. `fixtures/v0/tools.view.json` is the required `view()` output. `fixtures/v0/invalid-seq-gap/` and `fixtures/v0/invalid-version/` must fail to load.

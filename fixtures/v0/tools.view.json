@@ -1,0 +1,46 @@
+{
+  "session_id": "sess_demo",
+  "event_head": 7,
+  "workspace_head": {
+    "rev": 1,
+    "tree": "sha256:d0779708bffc70ca3ed6b1b80f2a2247205486b9a1e40025a3358572ff1bdbe5"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a coding agent.",
+      "op": "init"
+    },
+    {
+      "role": "user",
+      "content": "write README.md",
+      "op": "req-1"
+    },
+    {
+      "role": "assistant",
+      "content": "I will write the file.",
+      "turn": "turn_a",
+      "finish_reason": "tool_calls",
+      "model": "fake",
+      "tool_calls": []
+    },
+    {
+      "role": "tool",
+      "call_id": "call_write",
+      "name": "idempotent_write",
+      "status": "applied",
+      "result_text": "ok",
+      "error": null
+    }
+  ],
+  "ledger": [
+    {
+      "call_id": "call_write",
+      "tool": "idempotent_write",
+      "args_hash": "b5093e74a97d34c448e39486c4788577d65e14deabd3722b3603ceef3e45f68f",
+      "status": "applied",
+      "policy": "idempotent",
+      "result_ref": null
+    }
+  ]
+}
