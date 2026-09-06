@@ -18,7 +18,8 @@ pub use error::Error;
 pub use event::{AssistantDelta, Event, Input, LoggedEvent, Message, ToolCall, ToolCallDelta};
 pub use fault::{Clock, CrashAtNth, Fault, Hooks, ManualClock, PersistOp, SystemClock};
 pub use ids::{
-    ArgsHash, BlobRef, CallId, EventSeq, OpId, ResumeToken, SessionId, SnapshotRev, TurnId, WorkerId,
+    ArgsHash, BlobRef, CallId, EventSeq, OpId, ResumeToken, SessionId, SnapshotRev, TurnId,
+    WorkerId,
 };
 pub use lease::LeaseState;
 pub use session::{import_bundle, OpenOptions, Session, SessionView};

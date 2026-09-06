@@ -4,7 +4,7 @@ use std::fmt;
 use crate::error::Error;
 use crate::event::{Event, Message, ToolCall};
 use crate::ids::{ArgsHash, BlobRef, CallId, SnapshotRev, TurnId};
-use crate::tool::{AppliedTool, FinishReason, PendingTool, SideEffectStatus, ToolPolicy};
+use crate::tool::{AppliedTool, PendingTool, SideEffectStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Reject {
@@ -55,9 +55,6 @@ pub(crate) struct UnsealedTurn {
 #[derive(Clone, Debug)]
 pub(crate) struct CallRecord {
     pub status: SideEffectStatus,
-    pub name: String,
-    pub args_hash: ArgsHash,
-    pub policy: ToolPolicy,
     pub result_ref: Option<BlobRef>,
     pub result_text: Option<String>,
     pub error: Option<String>,
@@ -91,6 +88,7 @@ impl SessionState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn unopened() -> Self {
         let mut s = Self::origin();
         s.opened = false;
@@ -297,9 +295,6 @@ pub(crate) fn apply(state: &SessionState, event: &Event) -> Result<SessionState,
                 call_id.clone(),
                 CallRecord {
                     status: SideEffectStatus::Pending,
-                    name: name.clone(),
-                    args_hash: args_hash.clone(),
-                    policy: *policy,
                     result_ref: None,
                     result_text: None,
                     error: None,
@@ -387,10 +382,11 @@ fn apply_terminal(
         Some(_) => Err(Reject::UnknownCall),
         None => {
             if let Some(existing) = state.calls.get(call_id) {
-                if existing.status == SideEffectStatus::Applied && status == SideEffectStatus::Applied
+                if existing.status == SideEffectStatus::Applied
+                    && status == SideEffectStatus::Applied
                 {
-                    let same = existing.result_ref == result_ref
-                        && existing.result_text == result_text;
+                    let same =
+                        existing.result_ref == result_ref && existing.result_text == result_text;
                     if same {
                         return Ok(state.clone());
                     }
@@ -408,7 +404,7 @@ mod tests {
     use super::*;
     use crate::event::ToolCallDelta;
     use crate::ids::{CallId, OpId};
-    use crate::tool::args_hash;
+    use crate::tool::{args_hash, FinishReason, ToolPolicy};
     use serde_json::json;
 
     fn user(s: &str) -> Event {
@@ -625,7 +621,11 @@ mod tests {
             .applied_by_hash
             .contains_key(&("write".into(), args_hash(&args))));
         match &state.messages[1] {
-            Message::Assistant { content, tool_calls, .. } => {
+            Message::Assistant {
+                content,
+                tool_calls,
+                ..
+            } => {
                 assert_eq!(content, "Working on it");
                 assert_eq!(tool_calls.len(), 1);
                 assert_eq!(tool_calls[0].arguments, "{\"path\"");

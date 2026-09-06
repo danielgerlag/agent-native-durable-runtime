@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::ids::{sha256_hex, ArgsHash, BlobRef, CallId, SnapshotRev};
 use crate::error::Error;
+use crate::ids::{sha256_hex, ArgsHash, BlobRef, CallId, SnapshotRev};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,16 +46,6 @@ impl SideEffectStatus {
             SideEffectStatus::Applied => "applied",
             SideEffectStatus::Failed => "failed",
             SideEffectStatus::Abandoned => "abandoned",
-        }
-    }
-
-    pub(crate) fn parse(s: &str) -> Result<Self, Error> {
-        match s {
-            "pending" => Ok(SideEffectStatus::Pending),
-            "applied" => Ok(SideEffectStatus::Applied),
-            "failed" => Ok(SideEffectStatus::Failed),
-            "abandoned" => Ok(SideEffectStatus::Abandoned),
-            other => Err(Error::corrupt(format!("unknown side-effect status {other}"))),
         }
     }
 }

@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use serde_json::{json, Map, Value};
@@ -8,11 +8,11 @@ use crate::error::Error;
 use crate::event::{Event, LoggedEvent, ToolCallDelta};
 use crate::ids::{BlobRef, CallId, EventSeq, OpId, SessionId, SnapshotRev, TurnId};
 use crate::reducer::apply;
+use crate::semconv;
 use crate::session::fold_log;
 use crate::store::Store;
 use crate::tool::{args_hash, FinishReason, SideEffectStatus, ToolPolicy};
 use crate::workspace::{self, Filter, Tree};
-use crate::semconv;
 
 pub(crate) fn export(
     dest: &Path,
@@ -86,9 +86,7 @@ pub(crate) fn export(
             }
         }
     } else if workspace.exists() {
-        let mut put = |bytes: &[u8]| -> Result<BlobRef, Error> {
-            Ok(BlobRef::of_bytes(bytes))
-        };
+        let mut put = |bytes: &[u8]| -> Result<BlobRef, Error> { Ok(BlobRef::of_bytes(bytes)) };
         let _ = workspace::capture(workspace, filter, store_dir, &mut put);
     }
 
@@ -567,7 +565,8 @@ pub(crate) fn rfc3339_millis(ms: i64) -> String {
 
 pub(crate) fn parse_rfc3339(s: &str) -> Result<i64, Error> {
     let s = s.trim();
-    let (body, offset_min) = if let Some(rest) = s.strip_suffix('Z').or_else(|| s.strip_suffix('z')) {
+    let (body, offset_min) = if let Some(rest) = s.strip_suffix('Z').or_else(|| s.strip_suffix('z'))
+    {
         (rest, 0i64)
     } else if let Some(idx) = s.rfind(['+', '-']) {
         if idx < 11 {

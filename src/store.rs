@@ -166,7 +166,11 @@ impl Store {
             "INSERT INTO sessions (id, created_at, workspace_path, workspace_head_rev, closed_at)
              VALUES (?1, ?2, ?3, NULL, NULL)
              ON CONFLICT(id) DO UPDATE SET workspace_path = excluded.workspace_path",
-            params![session_id.as_str(), now, workspace.to_string_lossy().as_ref()],
+            params![
+                session_id.as_str(),
+                now,
+                workspace.to_string_lossy().as_ref()
+            ],
         )
         .map_err(Error::store)?;
         tx.commit().map_err(Error::store)?;
@@ -234,10 +238,6 @@ impl Store {
         &self.blob_dir
     }
 
-    pub(crate) fn session_id_str(&self) -> &str {
-        &self.session_id
-    }
-
     pub(crate) fn now_ms(&self) -> i64 {
         self.hooks.now_ms()
     }
@@ -246,6 +246,7 @@ impl Store {
         self.hooks.before_commit(op)
     }
 
+    #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
@@ -254,16 +255,6 @@ impl Store {
         self.conn
             .query_row(
                 "SELECT created_at FROM sessions WHERE id = ?1",
-                params![self.session_id],
-                |row| row.get(0),
-            )
-            .map_err(Error::store)
-    }
-
-    pub(crate) fn closed_at_ms(&self) -> Result<Option<i64>, Error> {
-        self.conn
-            .query_row(
-                "SELECT closed_at FROM sessions WHERE id = ?1",
                 params![self.session_id],
                 |row| row.get(0),
             )
@@ -326,27 +317,6 @@ impl Store {
                 Error::Io(e)
             }
         })
-    }
-
-    pub(crate) fn copy_blob_from(&self, src_root: &Path, r: &BlobRef) -> Result<(), Error> {
-        let hex = r.as_hex();
-        let dest_dir = self.blob_dir.join(&hex[..2]);
-        fs::create_dir_all(&dest_dir)?;
-        let dest = dest_dir.join(hex);
-        if dest.exists() {
-            return Ok(());
-        }
-        let src = src_root.join(&hex[..2]).join(hex);
-        if !src.exists() {
-            return Err(Error::corrupt(format!("missing bundle blob {}", r.uri())));
-        }
-        let bytes = fs::read(src)?;
-        let got = BlobRef::of_bytes(&bytes);
-        if got.as_hex() != hex {
-            return Err(Error::corrupt(format!("blob hash mismatch {}", r.uri())));
-        }
-        self.put_blob(&bytes)?;
-        Ok(())
     }
 
     fn write_ctx(&self) -> WriteCtx {
@@ -444,16 +414,6 @@ impl Store {
         Ok((logged, new_state))
     }
 
-    pub(crate) fn set_closed(&self, closed_at: i64) -> Result<(), Error> {
-        self.conn
-            .execute(
-                "UPDATE sessions SET closed_at = ?1 WHERE id = ?2",
-                params![closed_at, self.session_id],
-            )
-            .map_err(Error::store)?;
-        Ok(())
-    }
-
     pub(crate) fn journal_get(&self) -> Result<Option<RestoreJournal>, Error> {
         let row: Option<(i64, String, Option<String>, Option<String>)> = self
             .conn
@@ -475,7 +435,11 @@ impl Store {
         }
     }
 
-    pub(crate) fn journal_put(&mut self, journal: &RestoreJournal, op: Option<PersistOp>) -> Result<(), Error> {
+    pub(crate) fn journal_put(
+        &mut self,
+        journal: &RestoreJournal,
+        op: Option<PersistOp>,
+    ) -> Result<(), Error> {
         let ctx = self.write_ctx();
         let scratch = journal.scratch_path.to_string_lossy().into_owned();
         let bak = journal.bak_path.to_string_lossy().into_owned();
@@ -558,13 +522,7 @@ impl Store {
         tx.execute(
             "INSERT OR REPLACE INTO snapshots (session_id, rev, tree_blob, event_seq, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                session_id,
-                rev.get() as i64,
-                tree.uri(),
-                seq as i64,
-                t_ms
-            ],
+            params![session_id, rev.get() as i64, tree.uri(), seq as i64, t_ms],
         )
         .map_err(Error::store)?;
         tx.execute(
@@ -634,7 +592,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn rebuild_projections(&self, events: &[LoggedEvent], state: &SessionState) -> Result<(), Error> {
+    pub(crate) fn rebuild_projections(
+        &self,
+        events: &[LoggedEvent],
+        state: &SessionState,
+    ) -> Result<(), Error> {
         self.conn
             .execute(
                 "DELETE FROM tool_calls WHERE session_id = ?1",
@@ -700,16 +662,13 @@ impl Store {
                     logged.t_ms,
                     write_id,
                     logged.event.kind(),
-                    serde_json::to_string(&logged.event).map_err(|e| Error::bundle(e.to_string()))?,
+                    serde_json::to_string(&logged.event)
+                        .map_err(|e| Error::bundle(e.to_string()))?,
                     event_blob_ref(&logged.event)
                 ],
             )
             .map_err(Error::store)?;
         Ok(())
-    }
-
-    pub(crate) fn conn(&self) -> &Connection {
-        &self.conn
     }
 
     pub(crate) fn set_session_id(&mut self, id: &SessionId) {
@@ -719,13 +678,18 @@ impl Store {
 
 fn ensure_meta(conn: &Connection) -> Result<(), Error> {
     let version: Option<i64> = conn
-        .query_row("SELECT schema_version FROM meta LIMIT 1", [], |row| row.get(0))
+        .query_row("SELECT schema_version FROM meta LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(Error::store)?;
     match version {
         None => {
-            conn.execute("INSERT INTO meta (schema_version) VALUES (?1)", params![SCHEMA_VERSION])
-                .map_err(Error::store)?;
+            conn.execute(
+                "INSERT INTO meta (schema_version) VALUES (?1)",
+                params![SCHEMA_VERSION],
+            )
+            .map_err(Error::store)?;
             Ok(())
         }
         Some(v) if v == SCHEMA_VERSION => Ok(()),
@@ -881,11 +845,12 @@ fn upsert_projections(
     Ok(())
 }
 
-pub(crate) fn load_events_for(conn: &Connection, session_id: &str) -> Result<Vec<LoggedEvent>, Error> {
+pub(crate) fn load_events_for(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<LoggedEvent>, Error> {
     let mut stmt = conn
-        .prepare(
-            "SELECT seq, t_ms, body_json FROM events WHERE session_id = ?1 ORDER BY seq ASC",
-        )
+        .prepare("SELECT seq, t_ms, body_json FROM events WHERE session_id = ?1 ORDER BY seq ASC")
         .map_err(Error::store)?;
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -1088,15 +1053,8 @@ mod tests {
         )
         .unwrap();
         clock.set(1_000 + 60);
-        let mut b = Store::open(
-            &store_dir,
-            &sid,
-            &w2,
-            Duration::from_millis(60),
-            &ws,
-            hooks,
-        )
-        .unwrap();
+        let mut b =
+            Store::open(&store_dir, &sid, &w2, Duration::from_millis(60), &ws, hooks).unwrap();
         let err = a
             .commit_events(
                 &SessionState::origin(),
@@ -1125,5 +1083,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(logged.len(), 1);
+    }
+
+    #[test]
+    fn store_copying_journal_retries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().join("store");
+        let live = tmp.path().join("work");
+        fs::create_dir_all(&live).unwrap();
+        fs::write(live.join("a.txt"), b"old").unwrap();
+        let (sid, worker, _) = opts(tmp.path(), "w1");
+        let mut store = Store::open(
+            &store_dir,
+            &sid,
+            &worker,
+            Duration::from_secs(60),
+            &live,
+            Hooks::default(),
+        )
+        .unwrap();
+
+        let src = tmp.path().join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.txt"), b"new").unwrap();
+        let tree_ref = workspace::capture(
+            &src,
+            &crate::workspace::Filter::default(),
+            &store_dir,
+            |b| store.put_blob(b),
+        )
+        .unwrap()
+        .0;
+        store
+            .commit_events(
+                &SessionState::origin(),
+                &[Event::WorkspaceSnapshotted {
+                    rev: SnapshotRev::new(1),
+                    tree: tree_ref,
+                }],
+                PersistOp::SnapshotCommit,
+                &[],
+                None,
+                |_, _| Ok(()),
+            )
+            .unwrap();
+
+        let scratch = workspace::scratch_path(&live);
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(scratch.join("junk"), b"partial").unwrap();
+        store
+            .journal_put(
+                &crate::workspace::RestoreJournal {
+                    rev: SnapshotRev::new(1),
+                    phase: crate::workspace::RestorePhase::Copying,
+                    scratch_path: scratch,
+                    bak_path: workspace::bak_path(&live),
+                },
+                None,
+            )
+            .unwrap();
+        store.reconcile_restore(&live).unwrap();
+        assert_eq!(fs::read(live.join("a.txt")).unwrap(), b"new");
+        assert!(store.journal_get().unwrap().is_none());
     }
 }

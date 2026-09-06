@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::error::Error;
-use crate::ids::{SessionId, WorkerId};
+use crate::ids::WorkerId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LeaseState {
@@ -49,14 +49,20 @@ pub(crate) fn acquire(
     if conn.changes() != 1 {
         let holder = read_state(conn, session_id, now_ms)?;
         let (worker, ttl) = match holder {
-            LeaseState::Held { worker, ttl, .. } | LeaseState::Expired { last_worker: worker, ttl, .. } => {
-                (worker, ttl)
-            }
+            LeaseState::Held { worker, ttl, .. }
+            | LeaseState::Expired {
+                last_worker: worker,
+                ttl,
+                ..
+            } => (worker, ttl),
             LeaseState::Vacant => {
                 return Err(Error::store("lease acquire failed without a holder"));
             }
         };
-        return Err(Error::LeaseHeld { holder: worker, ttl });
+        return Err(Error::LeaseHeld {
+            holder: worker,
+            ttl,
+        });
     }
 
     let generation: i64 = conn
@@ -103,7 +109,11 @@ pub(crate) fn release(
     Ok(())
 }
 
-pub(crate) fn read_state(conn: &Connection, session_id: &str, now_ms: i64) -> Result<LeaseState, Error> {
+pub(crate) fn read_state(
+    conn: &Connection,
+    session_id: &str,
+    now_ms: i64,
+) -> Result<LeaseState, Error> {
     let row: Option<(String, i64, i64)> = conn
         .query_row(
             "SELECT worker_id, heartbeat_ms, ttl_ms FROM leases WHERE session_id = ?1",
@@ -153,16 +163,4 @@ pub(crate) fn heartbeat(
         return Err(Error::Fenced);
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-pub(crate) fn session_exists(conn: &Connection, session_id: &SessionId) -> Result<bool, Error> {
-    let n: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM sessions WHERE id = ?1",
-            params![session_id.as_str()],
-            |row| row.get(0),
-        )
-        .map_err(Error::store)?;
-    Ok(n > 0)
 }

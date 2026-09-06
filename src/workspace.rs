@@ -83,7 +83,7 @@ fn sibling_with_suffix(live: &Path, suffix: &str) -> PathBuf {
 }
 
 pub(crate) fn tree_bytes(tree: &Tree) -> Result<Vec<u8>, Error> {
-    let mut entries = serde_json::Map::new();
+    let entries = serde_json::Map::new();
     // Spec example lists `v` then `entries`; keep that field order so hashes are stable.
     let mut root = serde_json::Map::new();
     root.insert("v".into(), serde_json::json!(tree.v));
@@ -129,15 +129,18 @@ pub(crate) fn capture(
     store_dir: &Path,
     mut put: impl FnMut(&[u8]) -> Result<BlobRef, Error>,
 ) -> Result<(BlobRef, Tree), Error> {
-    let mut entries = Vec::new();
+    let mut pending = Vec::new();
     if root.exists() {
-        let walker = WalkDir::new(root).follow_links(false).into_iter().filter_entry(|e| {
-            if e.depth() == 0 {
-                return true;
-            }
-            let name = e.file_name().to_string_lossy();
-            !excluded_name(&name, &filter.exclude)
-        });
+        let walker = WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                !excluded_name(&name, &filter.exclude)
+            });
         for ent in walker {
             let ent = ent.map_err(|e| Error::Io(io_from_walkdir(e)))?;
             if ent.depth() == 0 {
@@ -158,35 +161,39 @@ pub(crate) fn capture(
                 .to_str()
                 .ok_or_else(|| Error::invalid("non-utf8 workspace path"))?
                 .replace('\\', "/");
-            if ft.is_symlink() {
-                let target = fs::read_link(ent.path())?;
-                let target_s = target
-                    .to_str()
-                    .ok_or_else(|| Error::invalid("non-utf8 symlink target"))?;
-                let bytes = target_s.as_bytes();
-                let blob = put(bytes)?;
-                entries.push(TreeEntry {
-                    path: rel_s,
-                    kind: "symlink".into(),
-                    blob: blob.uri(),
-                    mode: 0o120777,
-                    size: bytes.len() as u64,
-                });
-            } else if ft.is_file() {
-                let bytes = fs::read(ent.path())?;
-                let blob = put(&bytes)?;
-                let mode = file_mode(ent.path());
-                entries.push(TreeEntry {
-                    path: rel_s,
-                    kind: "file".into(),
-                    blob: blob.uri(),
-                    mode,
-                    size: bytes.len() as u64,
-                });
-            }
+            pending.push((rel_s, ent.path().to_path_buf(), ft.is_symlink()));
         }
     }
-    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    pending.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut entries = Vec::new();
+    for (rel_s, path, is_symlink) in pending {
+        if is_symlink {
+            let target = fs::read_link(&path)?;
+            let target_s = target
+                .to_str()
+                .ok_or_else(|| Error::invalid("non-utf8 symlink target"))?;
+            let bytes = target_s.as_bytes();
+            let blob = put(bytes)?;
+            entries.push(TreeEntry {
+                path: rel_s,
+                kind: "symlink".into(),
+                blob: blob.uri(),
+                mode: 0o120777,
+                size: bytes.len() as u64,
+            });
+        } else {
+            let bytes = fs::read(&path)?;
+            let blob = put(&bytes)?;
+            let mode = file_mode(&path);
+            entries.push(TreeEntry {
+                path: rel_s,
+                kind: "file".into(),
+                blob: blob.uri(),
+                mode,
+                size: bytes.len() as u64,
+            });
+        }
+    }
     let tree = Tree { v: 0, entries };
     let bytes = tree_bytes(&tree)?;
     let blob = put(&bytes)?;
@@ -311,7 +318,13 @@ mod tests {
                 blobs.insert(r.as_hex().to_string(), bytes.to_vec());
                 Ok(r)
             };
-            capture(&src, &Filter::default(), &tmp.path().join("store"), &mut put).unwrap()
+            capture(
+                &src,
+                &Filter::default(),
+                &tmp.path().join("store"),
+                &mut put,
+            )
+            .unwrap()
         };
         assert_eq!(tree_ref.as_hex(), sha256_hex(&tree_bytes(&tree).unwrap()));
         assert!(tree.entries.iter().all(|e| e.path != ".git/config"));
@@ -333,7 +346,13 @@ mod tests {
                 blobs2.insert(r.as_hex().to_string(), bytes.to_vec());
                 Ok(r)
             };
-            capture(&dest, &Filter::default(), &tmp.path().join("store"), &mut put).unwrap()
+            capture(
+                &dest,
+                &Filter::default(),
+                &tmp.path().join("store"),
+                &mut put,
+            )
+            .unwrap()
         };
         assert_eq!(tree_ref, tree_ref2);
         assert_eq!(fs::read(dest.join("README.md")).unwrap(), b"hello");
@@ -356,9 +375,14 @@ mod tests {
                 blobs.insert(r.as_hex().to_string(), bytes.to_vec());
                 Ok(r)
             };
-            capture(&src, &Filter::default(), &tmp.path().join("store"), &mut put)
-                .unwrap()
-                .1
+            capture(
+                &src,
+                &Filter::default(),
+                &tmp.path().join("store"),
+                &mut put,
+            )
+            .unwrap()
+            .1
         };
 
         let scratch = scratch_path(&live);

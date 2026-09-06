@@ -7,13 +7,13 @@ use crate::bundle;
 use crate::error::Error;
 use crate::event::{AssistantDelta, Event, Input, LoggedEvent, Message};
 use crate::fault::{Hooks, PersistOp};
-use crate::ids::{BlobRef, CallId, EventSeq, OpId, ResumeToken, SessionId, SnapshotRev, TurnId, WorkerId};
+use crate::ids::{BlobRef, CallId, OpId, ResumeToken, SessionId, SnapshotRev, WorkerId};
 use crate::lease::LeaseState;
 use crate::reducer::{apply, SessionState};
 use crate::store::Store;
 use crate::tool::{
-    AppliedTool, FinishReason, Recovery, ToolCtx, ToolDisposition, ToolResult, ToolRun, ToolSpec,
-    ToolPolicy,
+    AppliedTool, FinishReason, Recovery, ToolCtx, ToolDisposition, ToolPolicy, ToolResult, ToolRun,
+    ToolSpec,
 };
 use crate::workspace::{self, Filter};
 
@@ -54,10 +54,9 @@ impl Session {
         )?;
         store.reconcile_restore(&opts.workspace)?;
         let log = store.load_events()?;
-        let mut state = fold_log(&log)?;
+        let state = fold_log(&log)?;
         store.rebuild_projections(&log, &state)?;
 
-        let mut recovery = recovery_of(&state);
         let mut session = Self {
             store,
             state,
@@ -79,11 +78,10 @@ impl Session {
                 .as_ref()
                 .and_then(|u| u.model.clone());
             session.seal_assistant(FinishReason::TruncatedCrash, model.clone())?;
-            recovery = Recovery::Truncated { prefix, model };
+            session.recovery = Recovery::Truncated { prefix, model };
         } else {
-            recovery = recovery_of(&session.state);
+            session.recovery = recovery_of(&session.state);
         }
-        session.recovery = recovery;
         Ok(session)
     }
 
@@ -122,8 +120,14 @@ impl Session {
     pub fn append(&mut self, op: OpId, input: Input) -> Result<(), Error> {
         self.check()?;
         let event = match input {
-            Input::User { content } => Event::User { content, op: op.clone() },
-            Input::System { content } => Event::System { content, op: op.clone() },
+            Input::User { content } => Event::User {
+                content,
+                op: op.clone(),
+            },
+            Input::System { content } => Event::System {
+                content,
+                op: op.clone(),
+            },
         };
         let (logged, new_state) = self.catch_fence(|s| {
             s.store.commit_events(
@@ -163,7 +167,11 @@ impl Session {
         Ok(self.resume_token())
     }
 
-    pub fn seal_assistant(&mut self, reason: FinishReason, model: Option<String>) -> Result<(), Error> {
+    pub fn seal_assistant(
+        &mut self,
+        reason: FinishReason,
+        model: Option<String>,
+    ) -> Result<(), Error> {
         self.check()?;
         let turn = self
             .state
@@ -240,7 +248,11 @@ impl Session {
         Ok(ToolDisposition::Run)
     }
 
-    pub fn complete_tool(&mut self, call_id: &CallId, result: ToolResult) -> Result<AppliedTool, Error> {
+    pub fn complete_tool(
+        &mut self,
+        call_id: &CallId,
+        result: ToolResult,
+    ) -> Result<AppliedTool, Error> {
         self.check()?;
         let pending = self
             .state
@@ -248,7 +260,9 @@ impl Session {
             .as_ref()
             .ok_or_else(|| Error::invalid("no pending tool"))?;
         if pending.call_id != *call_id {
-            return Err(Error::invalid("complete_tool call id does not match pending"));
+            return Err(Error::invalid(
+                "complete_tool call id does not match pending",
+            ));
         }
         let result_ref = match &result.bytes {
             Some(bytes) => Some(self.store.put_blob(bytes)?),
@@ -309,7 +323,11 @@ impl Session {
         Ok(())
     }
 
-    pub fn abandon_tool(&mut self, call_id: &CallId, reason: impl Into<String>) -> Result<(), Error> {
+    pub fn abandon_tool(
+        &mut self,
+        call_id: &CallId,
+        reason: impl Into<String>,
+    ) -> Result<(), Error> {
         self.check()?;
         let event = Event::ToolAbandoned {
             call_id: call_id.clone(),
@@ -439,7 +457,10 @@ impl Session {
     fn install(&mut self, logged: Vec<LoggedEvent>, new_state: SessionState) {
         self.log.extend(logged);
         self.state = new_state;
-        if self.state.pending.is_none() && self.state.unsealed.is_none() && !matches!(self.recovery, Recovery::Truncated { .. }) {
+        if self.state.pending.is_none()
+            && self.state.unsealed.is_none()
+            && !matches!(self.recovery, Recovery::Truncated { .. })
+        {
             self.recovery = recovery_of(&self.state);
         }
     }
@@ -452,7 +473,10 @@ impl Session {
         }
     }
 
-    fn catch_fence<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T, Error>) -> Result<T, Error> {
+    fn catch_fence<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         match f(self) {
             Err(Error::Fenced) => {
                 self.poisoned = true;
@@ -528,7 +552,10 @@ impl SessionView {
     }
 }
 
-pub fn import_bundle(store_dir: impl AsRef<Path>, src: impl AsRef<Path>) -> Result<SessionId, Error> {
+pub fn import_bundle(
+    store_dir: impl AsRef<Path>,
+    src: impl AsRef<Path>,
+) -> Result<SessionId, Error> {
     bundle::import(store_dir.as_ref(), src.as_ref())
 }
 
@@ -567,17 +594,4 @@ fn replay_from(
         .filter(|e| e.seq.get() > token.seq())
         .cloned()
         .collect())
-}
-
-pub(crate) fn pending_call(session: &Session) -> Option<CallId> {
-    session.state.pending.as_ref().map(|p| p.call_id.clone())
-}
-
-#[allow(dead_code)]
-pub(crate) fn unsealed_turn(session: &Session) -> Option<TurnId> {
-    session.state.unsealed.as_ref().map(|u| u.turn.clone())
-}
-
-pub(crate) fn event_seq_head(session: &Session) -> EventSeq {
-    EventSeq::new(session.state.last_seq)
 }
