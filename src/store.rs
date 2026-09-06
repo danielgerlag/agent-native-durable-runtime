@@ -1032,6 +1032,34 @@ mod tests {
     }
 
     #[test]
+    fn lease_steal_when_holder_pid_is_dead() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().join("store");
+        let (sid, dead, ws) = opts(tmp.path(), "pid-999999-deadbeef");
+        let live = WorkerId::parse("bob").unwrap();
+        fs::create_dir_all(&ws).unwrap();
+        let _ghost = Store::open(
+            &store_dir,
+            &sid,
+            &dead,
+            Duration::from_secs(60),
+            &ws,
+            Hooks::default(),
+        )
+        .unwrap();
+        drop(_ghost);
+        Store::open(
+            &store_dir,
+            &sid,
+            &live,
+            Duration::from_secs(60),
+            &ws,
+            Hooks::default(),
+        )
+        .expect("dead pid holder should be stealable");
+    }
+
+    #[test]
     fn lease_steal_after_ttl_and_fence() {
         let tmp = tempfile::tempdir().unwrap();
         let store_dir = tmp.path().join("store");

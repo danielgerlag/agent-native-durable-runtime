@@ -25,13 +25,13 @@ fn ms_to_system_time(ms: i64) -> SystemTime {
     UNIX_EPOCH + Duration::from_millis(ms)
 }
 
-pub(crate) fn acquire(
+fn try_cas_acquire(
     conn: &Connection,
     session_id: &str,
     worker_id: &str,
     now_ms: i64,
     ttl_ms: i64,
-) -> Result<u64, Error> {
+) -> Result<(), Error> {
     conn.execute(
         "INSERT INTO leases (session_id, worker_id, generation, heartbeat_ms, ttl_ms)
          VALUES (?1, ?2, 1, ?3, ?4)
@@ -45,24 +45,73 @@ pub(crate) fn acquire(
         params![session_id, worker_id, now_ms, ttl_ms],
     )
     .map_err(Error::store)?;
+    Ok(())
+}
+
+fn holder_process_is_dead(worker_id: &str) -> bool {
+    let mut parts = worker_id.split('-');
+    if parts.next() != Some("pid") {
+        return false;
+    }
+    let Some(pid_s) = parts.next() else {
+        return false;
+    };
+    let Ok(pid) = pid_s.parse::<u32>() else {
+        return false;
+    };
+    if pid == std::process::id() {
+        return false;
+    }
+    !pid_is_alive(pid)
+}
+
+fn pid_is_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true)
+}
+
+pub(crate) fn acquire(
+    conn: &Connection,
+    session_id: &str,
+    worker_id: &str,
+    now_ms: i64,
+    ttl_ms: i64,
+) -> Result<u64, Error> {
+    try_cas_acquire(conn, session_id, worker_id, now_ms, ttl_ms)?;
 
     if conn.changes() != 1 {
         let holder = read_state(conn, session_id, now_ms)?;
-        let (worker, ttl) = match holder {
+        let (worker, ttl) = match &holder {
             LeaseState::Held { worker, ttl, .. }
             | LeaseState::Expired {
                 last_worker: worker,
                 ttl,
                 ..
-            } => (worker, ttl),
+            } => (worker.clone(), *ttl),
             LeaseState::Vacant => {
                 return Err(Error::store("lease acquire failed without a holder"));
             }
         };
-        return Err(Error::LeaseHeld {
-            holder: worker,
-            ttl,
-        });
+        if holder_process_is_dead(worker.as_str()) {
+            conn.execute(
+                "DELETE FROM leases WHERE session_id = ?1 AND worker_id = ?2",
+                params![session_id, worker.as_str()],
+            )
+            .map_err(Error::store)?;
+            try_cas_acquire(conn, session_id, worker_id, now_ms, ttl_ms)?;
+        }
+        if conn.changes() != 1 {
+            return Err(Error::LeaseHeld {
+                holder: worker,
+                ttl,
+            });
+        }
     }
 
     let generation: i64 = conn
