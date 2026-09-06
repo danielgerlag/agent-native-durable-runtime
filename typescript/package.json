@@ -1,0 +1,29 @@
+{
+  "name": "durable-session",
+  "version": "0.1.0",
+  "description": "TypeScript reader for durable_session.checkpoint v0",
+  "license": "Apache-2.0 OR MIT",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/test/*.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "ajv": "^8.17.1",
+    "typescript": "^5.6.3"
+  }
+}

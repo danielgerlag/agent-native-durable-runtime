@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danielgerlag/agent-native-durable-runtime/spec/schema/tree.schema.json",
+  "title": "durable_session.checkpoint workspace tree v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "entries"],
+  "properties": {
+    "v": { "const": 0 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type", "blob", "mode", "size"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["file", "symlink"] },
+        "blob": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "mode": { "type": "integer", "minimum": 0 },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

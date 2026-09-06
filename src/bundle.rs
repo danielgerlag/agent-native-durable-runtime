@@ -11,7 +11,7 @@ use crate::reducer::apply;
 use crate::semconv;
 use crate::session::fold_log;
 use crate::store::Store;
-use crate::tool::{args_hash, FinishReason, SideEffectStatus, ToolPolicy};
+use crate::tool::{FinishReason, SideEffectStatus, ToolPolicy};
 use crate::workspace::{self, Filter, Tree};
 
 pub(crate) fn export(
@@ -316,7 +316,7 @@ fn event_to_wire(event: &Event) -> Result<Option<Map<String, Value>>, Error> {
     Ok(Some(m))
 }
 
-fn wire_to_event(v: &Value) -> Result<Event, Error> {
+pub(crate) fn wire_to_event(v: &Value) -> Result<Event, Error> {
     let ty = v
         .get("type")
         .and_then(|t| t.as_str())
@@ -375,15 +375,14 @@ fn wire_to_event(v: &Value) -> Result<Event, Error> {
         }),
         "tool_pending" => {
             let args = v.get("args").cloned().unwrap_or(Value::Null);
-            let hash = v
-                .get("args_hash")
-                .and_then(|h| h.as_str())
-                .map(|s| crate::ids::ArgsHash::from_hex(s.to_owned()))
-                .unwrap_or_else(|| args_hash(&args));
+            let hash = req_str(v, "args_hash")?;
+            if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(Error::bundle("missing field args_hash"));
+            }
             Ok(Event::ToolPending {
                 call_id: CallId::parse(req_str(v, semconv::GEN_AI_TOOL_CALL_ID)?)?,
                 name: req_str(v, semconv::GEN_AI_TOOL_NAME)?.to_owned(),
-                args_hash: hash,
+                args_hash: crate::ids::ArgsHash::from_hex(hash.to_owned()),
                 args,
                 policy: ToolPolicy::parse(req_str(v, "policy")?)?,
                 workspace_rev: SnapshotRev::new(

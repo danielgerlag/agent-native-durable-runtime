@@ -1,6 +1,7 @@
 //! Crash-safe agent sessions: transcript, workspace snapshot, and tool ledger.
 
 mod bundle;
+mod checkpoint;
 mod error;
 mod event;
 mod fault;
@@ -17,6 +18,7 @@ pub mod semconv;
 pub use error::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
+pub use checkpoint::Checkpoint;
 pub use event::{AssistantDelta, Event, Input, LoggedEvent, Message, ToolCall, ToolCallDelta};
 pub use fault::{Clock, CrashAtNth, Fault, Hooks, ManualClock, PersistOp, SystemClock};
 pub use ids::{
