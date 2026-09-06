@@ -58,7 +58,18 @@ fn run() -> Result<(), durable_session::Error> {
                 )?;
             }
             Action::Stop => {
-                stream_and_seal(&mut session, "Done.", FinishReason::Stop)?;
+                let already_stopped = session.messages().iter().any(|m| {
+                    matches!(
+                        m,
+                        Message::Assistant {
+                            finish_reason: FinishReason::Stop,
+                            ..
+                        }
+                    )
+                });
+                if !already_stopped {
+                    stream_and_seal(&mut session, "Done.", FinishReason::Stop)?;
+                }
                 break;
             }
         }
