@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0 OR MIT"
 description = "Agent-native durable session runtime"
+readme = "README.md"
+repository = "https://github.com/danielgerlag/agent-native-durable-runtime"
 publish = false
 
 [dependencies]
