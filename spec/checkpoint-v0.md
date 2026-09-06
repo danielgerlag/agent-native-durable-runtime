@@ -36,7 +36,7 @@ The canonical view is what every language must emit from `load(path).view()`. Go
 
 Required: `format` = `durable_session.checkpoint`, `checkpoint_version` = `0`, `session_id`, `event_head`, `files.transcript`, `derived`.
 
-`event_head` is the `seq` of the last transcript line. `workspace_head` is `{ "rev": u64, "tree": "sha256:<hex>" }` or `null`.
+`event_head` is the `seq` of the last transcript line. `files.transcript` is a relative path with no `..` segments. `workspace_head` in `view()` is the last `workspace_snapshot` in the transcript. If the manifest also has a head, it must match.
 
 `gen_ai.conversation.id` is the same string as `session_id`. That is an OpenTelemetry attribute name reused as a label.
 
@@ -75,6 +75,7 @@ Unknown `type` is an error. A seq gap is an error.
 3. Ignore `derived` paths.
 4. Do not take a lease.
 5. The canonical view is folded from the transcript. Do not trust `views/`.
+6. A `workspace_snapshot` or `result_ref` whose blob is missing is corrupt.
 
 ## Golden fixtures
 

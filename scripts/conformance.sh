@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-cargo test --test checkpoint --offline
+cargo test --test checkpoint
 
 if [[ -d python ]]; then
   (cd python && python3 -m pytest -q)

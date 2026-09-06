@@ -97,3 +97,25 @@ test("unsupported checkpoint_version is rejected", () => {
       err instanceof Error && err.message.includes("checkpoint_version"),
   );
 });
+
+test("path escape is rejected", () => {
+  assert.throws(
+    () => load(path.join(fixtures, "invalid-escape")),
+    (err: unknown) => err instanceof Error && err.message.includes("escapes"),
+  );
+});
+
+test("two pending tools are rejected", () => {
+  assert.throws(
+    () => load(path.join(fixtures, "invalid-two-pending")),
+    (err: unknown) => err instanceof Error && err.message.includes("pending"),
+  );
+});
+
+test("workspace_head mismatch is rejected", () => {
+  assert.throws(
+    () => load(path.join(fixtures, "invalid-head-mismatch")),
+    (err: unknown) =>
+      err instanceof Error && err.message.includes("workspace_head"),
+  );
+});

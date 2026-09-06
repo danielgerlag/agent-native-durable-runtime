@@ -62,7 +62,10 @@
       "additionalProperties": { "type": "string" },
       "required": ["transcript"],
       "properties": {
-        "transcript": { "type": "string" },
+        "transcript": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"
+        },
         "trees": { "type": "string" },
         "blobs": { "type": "string" },
         "workspace": { "type": "string" },

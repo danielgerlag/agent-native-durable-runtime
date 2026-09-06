@@ -1,0 +1,10 @@
+{
+  "format": "durable_session.checkpoint",
+  "checkpoint_version": 0,
+  "session_id": "sess_bad",
+  "event_head": 5,
+  "files": {
+    "transcript": "transcript.ndjson"
+  },
+  "derived": []
+}

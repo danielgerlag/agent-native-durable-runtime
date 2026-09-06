@@ -52,8 +52,9 @@ impl Checkpoint {
             .and_then(|f| f.get("transcript"))
             .and_then(|t| t.as_str())
             .unwrap_or("transcript.ndjson");
+        let transcript_path = resolve_in_bundle(root, transcript_name)?;
 
-        let file = File::open(root.join(transcript_name))?;
+        let file = File::open(transcript_path)?;
         let reader = BufReader::new(file);
         let mut expect = 1u64;
         let mut events = Vec::new();
@@ -97,21 +98,22 @@ impl Checkpoint {
             )));
         }
 
-        let workspace_head = match manifest.get("workspace_head") {
-            None | Some(Value::Null) => None,
-            Some(obj) => {
-                let rev = obj
-                    .get("rev")
-                    .and_then(|r| r.as_u64())
-                    .ok_or_else(|| Error::bundle("workspace_head missing rev"))?;
-                let tree = obj
-                    .get("tree")
-                    .and_then(|t| t.as_str())
-                    .ok_or_else(|| Error::bundle("workspace_head missing tree"))?;
-                let _ = BlobRef::parse(tree)?;
-                Some((rev, tree.to_owned()))
+        let manifest_head = parse_workspace_head(manifest.get("workspace_head"))?;
+        let folded_head = folded_workspace_head(&events);
+        let workspace_head = match (manifest_head, folded_head) {
+            (None, folded) => folded,
+            (Some(m), Some(f)) if m == f => Some(f),
+            (Some(_), Some(_)) => {
+                return Err(Error::bundle("workspace_head does not match transcript"));
+            }
+            (Some(_), None) => {
+                return Err(Error::bundle("workspace_head does not match transcript"));
             }
         };
+
+        for logged in &events {
+            ensure_referenced_blob(root, &logged.event)?;
+        }
 
         Ok(Self {
             session_id,
@@ -148,6 +150,68 @@ impl Checkpoint {
             "ledger": ledger_view(&self.events),
         })
     }
+}
+
+fn resolve_in_bundle(root: &Path, rel: &str) -> Result<std::path::PathBuf, Error> {
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        return Err(Error::bundle("path escapes bundle"));
+    }
+    for c in rel_path.components() {
+        match c {
+            std::path::Component::Normal(_) | std::path::Component::CurDir => {}
+            _ => return Err(Error::bundle("path escapes bundle")),
+        }
+    }
+    Ok(root.join(rel_path))
+}
+
+fn parse_workspace_head(v: Option<&Value>) -> Result<Option<(u64, String)>, Error> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(obj) => {
+            let rev = obj
+                .get("rev")
+                .and_then(|r| r.as_u64())
+                .ok_or_else(|| Error::bundle("workspace_head missing rev"))?;
+            let tree = obj
+                .get("tree")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| Error::bundle("workspace_head missing tree"))?;
+            let _ = BlobRef::parse(tree)?;
+            Ok(Some((rev, tree.to_owned())))
+        }
+    }
+}
+
+fn folded_workspace_head(events: &[LoggedEvent]) -> Option<(u64, String)> {
+    events.iter().rev().find_map(|e| match &e.event {
+        Event::WorkspaceSnapshotted { rev, tree } => Some((rev.get(), tree.uri())),
+        _ => None,
+    })
+}
+
+fn ensure_referenced_blob(root: &Path, event: &Event) -> Result<(), Error> {
+    let uri = match event {
+        Event::WorkspaceSnapshotted { tree, .. } => tree.uri(),
+        Event::ToolApplied {
+            result_ref: Some(r),
+            ..
+        } => r.uri(),
+        _ => return Ok(()),
+    };
+    let hex = uri
+        .strip_prefix("sha256:")
+        .ok_or_else(|| Error::bundle(format!("invalid blob ref {uri}")))?;
+    if hex.len() < 2 {
+        return Err(Error::bundle(format!("invalid blob ref {uri}")));
+    }
+    let rel = format!("blobs/{}/{hex}", &hex[..2]);
+    let path = resolve_in_bundle(root, &rel)?;
+    if !path.is_file() {
+        return Err(Error::corrupt(format!("missing blob {uri}")));
+    }
+    Ok(())
 }
 
 fn message_view(m: &Message) -> Value {

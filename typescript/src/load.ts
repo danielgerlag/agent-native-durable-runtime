@@ -286,6 +286,43 @@ function parseWorkspaceHead(value: unknown): WorkspaceHead | null {
   return { rev, tree };
 }
 
+function resolveInBundle(dir: string, rel: string): string {
+  if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) {
+    throw new Error("path escapes bundle");
+  }
+  return path.join(dir, rel);
+}
+
+function foldedWorkspaceHead(events: Event[]): WorkspaceHead | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event !== undefined && event.type === "workspace_snapshot") {
+      return { rev: event.rev, tree: event.tree };
+    }
+  }
+  return null;
+}
+
+function ensureReferencedBlob(dir: string, event: Event): void {
+  let uri: string | undefined;
+  if (event.type === "workspace_snapshot") {
+    uri = event.tree;
+  } else if (event.type === "tool_applied") {
+    uri = event.result_ref;
+  }
+  if (uri === undefined) {
+    return;
+  }
+  const hex = uri.startsWith("sha256:") ? uri.slice("sha256:".length) : uri;
+  if (hex.length < 2) {
+    throw new Error(`invalid blob ref ${uri}`);
+  }
+  const blobPath = resolveInBundle(dir, path.posix.join("blobs", hex.slice(0, 2), hex));
+  if (!fs.existsSync(blobPath) || !fs.statSync(blobPath).isFile()) {
+    throw new Error(`missing blob ${uri}`);
+  }
+}
+
 function parseTranscript(filePath: string): Event[] {
   const body = fs.readFileSync(filePath, "utf8");
   const events: Event[] = [];
@@ -309,7 +346,7 @@ function parseTranscript(filePath: string): Event[] {
       throw new Error(`seq gap: expected ${expect}, got ${seq}`);
     }
     expect += 1;
-    if (!("t" in raw) || typeof raw.t !== "string") {
+    if (!("t" in raw) || typeof raw.t !== "string" || !raw.t.toUpperCase().includes("T")) {
       throw new Error("event missing t");
     }
     events.push(parseEvent(raw));
@@ -367,7 +404,7 @@ export class Checkpoint {
       isRecord(files) && typeof files.transcript === "string"
         ? files.transcript
         : "transcript.ndjson";
-    const events = parseTranscript(path.join(dir, transcriptName));
+    const events = parseTranscript(resolveInBundle(dir, transcriptName));
     const last = events.at(-1);
     const lastSeq = last === undefined ? 0 : last.seq;
     const eventHead =
@@ -378,7 +415,23 @@ export class Checkpoint {
     if (eventHead !== lastSeq) {
       throw new Error(`event_head ${eventHead} does not match transcript`);
     }
-    const workspaceHead = parseWorkspaceHead(manifestRaw.workspace_head);
+    const manifestHead = parseWorkspaceHead(manifestRaw.workspace_head);
+    const foldedHead = foldedWorkspaceHead(events);
+    let workspaceHead: WorkspaceHead | null;
+    if (manifestHead === null) {
+      workspaceHead = foldedHead;
+    } else if (
+      foldedHead !== null &&
+      foldedHead.rev === manifestHead.rev &&
+      foldedHead.tree === manifestHead.tree
+    ) {
+      workspaceHead = foldedHead;
+    } else {
+      throw new Error("workspace_head does not match transcript");
+    }
+    for (const event of events) {
+      ensureReferencedBlob(dir, event);
+    }
     const messages = foldMessages(events);
     return new Checkpoint(
       sessionId,

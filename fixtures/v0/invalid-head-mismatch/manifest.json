@@ -1,0 +1,14 @@
+{
+  "format": "durable_session.checkpoint",
+  "checkpoint_version": 0,
+  "session_id": "sess_demo",
+  "event_head": 1,
+  "workspace_head": {
+    "rev": 9,
+    "tree": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "files": {
+    "transcript": "transcript.ndjson"
+  },
+  "derived": []
+}

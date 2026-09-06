@@ -1,0 +1,5 @@
+{"seq":1,"t":"2026-09-05T12:00:00.000Z","type":"user","role":"user","content":"go","op":"o1"}
+{"seq":2,"t":"2026-09-05T12:00:01.000Z","type":"assistant_delta","turn":"turn_a","text":"ok"}
+{"seq":3,"t":"2026-09-05T12:00:02.000Z","type":"assistant_sealed","turn":"turn_a","finish_reason":"tool_calls"}
+{"seq":4,"t":"2026-09-05T12:00:03.000Z","type":"tool_pending","gen_ai.tool.call.id":"call_a","gen_ai.tool.name":"a","args_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","args":{},"policy":"idempotent","workspace_rev":0}
+{"seq":5,"t":"2026-09-05T12:00:04.000Z","type":"tool_pending","gen_ai.tool.call.id":"call_b","gen_ai.tool.name":"b","args_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","args":{},"policy":"idempotent","workspace_rev":0}

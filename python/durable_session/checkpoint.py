@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Union
 
 FORMAT = "durable_session.checkpoint"
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call.id"
 GEN_AI_TOOL_NAME = "gen_ai.tool.name"
 GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
@@ -211,8 +213,8 @@ class Checkpoint:
             raise CheckpointError(f"unsupported checkpoint_version {version}")
 
         sid = manifest.get("session_id")
-        if not isinstance(sid, str) or not sid:
-            raise CheckpointError("manifest missing session_id")
+        if not isinstance(sid, str) or not _SESSION_ID.fullmatch(sid):
+            raise CheckpointError("invalid session id")
 
         transcript_name = "transcript.ndjson"
         files = manifest.get("files")
@@ -221,7 +223,7 @@ class Checkpoint:
             if isinstance(tname, str) and tname:
                 transcript_name = tname
 
-        events = _read_transcript(root / transcript_name)
+        events = _read_transcript(_bundle_path(root, transcript_name))
         messages = _fold_messages(events)
 
         last = events[-1].seq if events else 0
@@ -235,7 +237,18 @@ class Checkpoint:
                 f"event_head {event_head} does not match transcript"
             )
 
-        workspace_head = _workspace_head(manifest.get("workspace_head"))
+        manifest_head = _workspace_head(manifest.get("workspace_head"))
+        folded_head = _folded_workspace_head(events)
+        if manifest_head is None:
+            workspace_head = folded_head
+        elif folded_head == manifest_head:
+            workspace_head = folded_head
+        else:
+            raise CheckpointError("workspace_head does not match transcript")
+
+        for ev in events:
+            _ensure_referenced_blob(root, ev)
+
         return cls(
             session_id=sid,
             events=events,
@@ -272,6 +285,13 @@ def _req_str(obj: dict[str, Any], key: str) -> str:
     if not isinstance(v, str):
         raise CheckpointError(f"missing field {key}")
     return v
+
+
+def _req_hex64(obj: dict[str, Any], key: str) -> str:
+    v = _req_str(obj, key)
+    if len(v) != 64 or any(c not in _HEX for c in v):
+        raise CheckpointError(f"missing field {key}")
+    return v.lower()
 
 
 def _req_int(obj: dict[str, Any], key: str) -> int:
@@ -340,7 +360,8 @@ def _read_transcript(path: Path) -> list[Event]:
         if seq != expect:
             raise CheckpointError(f"seq gap: expected {expect}, got {seq}")
         expect += 1
-        if not isinstance(obj.get("t"), str):
+        t = obj.get("t")
+        if not isinstance(t, str) or "T" not in t.upper():
             raise CheckpointError("event missing t")
         events.append(_wire_to_event(obj))
     return events
@@ -407,7 +428,7 @@ def _wire_to_event(obj: dict[str, Any]) -> Event:
             t=t,
             call_id=_req_str(obj, GEN_AI_TOOL_CALL_ID),
             name=_req_str(obj, GEN_AI_TOOL_NAME),
-            args_hash=_req_str(obj, "args_hash"),
+            args_hash=_req_hex64(obj, "args_hash"),
             args=obj.get("args"),
             policy=policy,
             workspace_rev=_req_int(obj, "workspace_rev"),
@@ -469,16 +490,58 @@ class _Unsealed:
     model: str | None = None
 
 
+def _bundle_path(root: Path, rel: str) -> Path:
+    rel_path = Path(rel)
+    if rel_path.is_absolute() or any(part == ".." for part in rel_path.parts):
+        raise CheckpointError("path escapes bundle")
+    return root / rel_path
+
+
+def _folded_workspace_head(events: list[Event]) -> dict[str, Any] | None:
+    for ev in reversed(events):
+        if isinstance(ev, WorkspaceSnapshotEvent):
+            return {"rev": ev.rev, "tree": ev.tree}
+    return None
+
+
+def _ensure_referenced_blob(root: Path, ev: Event) -> None:
+    uri: str | None = None
+    if isinstance(ev, WorkspaceSnapshotEvent):
+        uri = ev.tree
+    elif isinstance(ev, ToolAppliedEvent):
+        uri = ev.result_ref
+    if uri is None:
+        return
+    hex_part = uri[7:] if uri.startswith("sha256:") else uri
+    if len(hex_part) < 2:
+        raise CheckpointError(f"invalid blob ref {uri}")
+    path = _bundle_path(root, f"blobs/{hex_part[:2]}/{hex_part}")
+    if not path.is_file():
+        raise CheckpointError(f"missing blob {uri}")
+
+
 def _fold_messages(events: list[Event]) -> list[Message]:
     messages: list[Message] = []
     unsealed: _Unsealed | None = None
     pending: ToolPendingEvent | None = None
+    calls: set[str] = set()
+    applied_by_hash: set[tuple[str, str]] = set()
     for ev in events:
-        if isinstance(ev, SystemEvent):
-            messages.append(SystemMessage(content=ev.content, op=ev.op))
-        elif isinstance(ev, UserEvent):
-            messages.append(UserMessage(content=ev.content, op=ev.op))
+        if isinstance(ev, (SystemEvent, UserEvent)):
+            if pending is not None:
+                raise CheckpointError("assistant input while a tool is pending")
+            if unsealed is not None:
+                raise CheckpointError("unexpected turn")
+            if isinstance(ev, SystemEvent):
+                messages.append(SystemMessage(content=ev.content, op=ev.op))
+            else:
+                messages.append(UserMessage(content=ev.content, op=ev.op))
         elif isinstance(ev, AssistantDeltaEvent):
+            if pending is not None:
+                raise CheckpointError("assistant input while a tool is pending")
+            text_empty = ev.text is None or ev.text == ""
+            if text_empty and ev.tool_call is None:
+                raise CheckpointError("empty assistant chunk")
             unsealed = _apply_delta(unsealed, ev)
         elif isinstance(ev, AssistantSealedEvent):
             if unsealed is None or unsealed.turn != ev.turn:
@@ -498,49 +561,76 @@ def _fold_messages(events: list[Event]) -> list[Message]:
             )
             unsealed = None
         elif isinstance(ev, ToolPendingEvent):
+            if unsealed is not None:
+                raise CheckpointError("unexpected turn")
+            if pending is not None:
+                raise CheckpointError("two pending tools")
+            if ev.call_id in calls:
+                raise CheckpointError("duplicate tool call")
+            if (ev.name, ev.args_hash) in applied_by_hash:
+                raise CheckpointError("duplicate tool call")
             pending = ev
+            calls.add(ev.call_id)
         elif isinstance(ev, ToolAppliedEvent):
-            if pending is None or pending.call_id != ev.call_id:
-                raise CheckpointError("unknown tool call")
-            messages.append(
-                ToolMessage(
-                    call_id=ev.call_id,
-                    name=pending.name,
-                    status="applied",
-                    result_text=ev.result_text,
-                    error=None,
-                )
+            _apply_terminal(
+                messages,
+                pending,
+                applied_by_hash,
+                ev.call_id,
+                "applied",
+                ev.result_text,
+                None,
             )
             pending = None
         elif isinstance(ev, ToolFailedEvent):
-            if pending is None or pending.call_id != ev.call_id:
-                raise CheckpointError("unknown tool call")
-            messages.append(
-                ToolMessage(
-                    call_id=ev.call_id,
-                    name=pending.name,
-                    status="failed",
-                    result_text=None,
-                    error=ev.error,
-                )
+            _apply_terminal(
+                messages,
+                pending,
+                applied_by_hash,
+                ev.call_id,
+                "failed",
+                None,
+                ev.error,
             )
             pending = None
         elif isinstance(ev, ToolAbandonedEvent):
-            if pending is None or pending.call_id != ev.call_id:
-                raise CheckpointError("unknown tool call")
-            messages.append(
-                ToolMessage(
-                    call_id=ev.call_id,
-                    name=pending.name,
-                    status="abandoned",
-                    result_text=None,
-                    error=ev.reason,
-                )
+            _apply_terminal(
+                messages,
+                pending,
+                applied_by_hash,
+                ev.call_id,
+                "abandoned",
+                None,
+                ev.reason,
             )
             pending = None
         elif isinstance(ev, WorkspaceSnapshotEvent):
             continue
     return messages
+
+
+def _apply_terminal(
+    messages: list[Message],
+    pending: ToolPendingEvent | None,
+    applied_by_hash: set[tuple[str, str]],
+    call_id: str,
+    status: str,
+    result_text: str | None,
+    error: str | None,
+) -> None:
+    if pending is None or pending.call_id != call_id:
+        raise CheckpointError("unknown tool call")
+    if status == "applied":
+        applied_by_hash.add((pending.name, pending.args_hash))
+    messages.append(
+        ToolMessage(
+            call_id=call_id,
+            name=pending.name,
+            status=status,
+            result_text=result_text,
+            error=error,
+        )
+    )
 
 
 def _apply_delta(unsealed: _Unsealed | None, ev: AssistantDeltaEvent) -> _Unsealed:
@@ -579,7 +669,6 @@ def _apply_delta(unsealed: _Unsealed | None, ev: AssistantDeltaEvent) -> _Unseal
 
 
 def _message_view(message: Message) -> dict[str, Any]:
-    # Always emit nulls: Rust json! does, and the golden view requires them.
     if isinstance(message, SystemMessage):
         return {"role": "system", "content": message.content, "op": message.op}
     if isinstance(message, UserMessage):

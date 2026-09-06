@@ -43,3 +43,28 @@ fn reject_unsupported_version() {
         Ok(_) => panic!("expected version error"),
     }
 }
+
+fn reject_contains(name: &str, needle: &str) {
+    match Checkpoint::load(fixture(name)) {
+        Err(err) => {
+            let msg = err.to_string();
+            assert!(msg.contains(needle), "{msg}");
+        }
+        Ok(_) => panic!("expected {name} to fail"),
+    }
+}
+
+#[test]
+fn reject_path_escape() {
+    reject_contains("invalid-escape", "escapes");
+}
+
+#[test]
+fn reject_two_pending() {
+    reject_contains("invalid-two-pending", "pending");
+}
+
+#[test]
+fn reject_workspace_head_mismatch() {
+    reject_contains("invalid-head-mismatch", "workspace_head");
+}

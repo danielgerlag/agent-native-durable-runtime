@@ -55,3 +55,18 @@ def test_reject_seq_gap() -> None:
 def test_reject_unsupported_version() -> None:
     with pytest.raises(CheckpointError, match="checkpoint_version"):
         load(V0 / "invalid-version")
+
+
+def test_reject_path_escape() -> None:
+    with pytest.raises(CheckpointError, match="escapes"):
+        load(V0 / "invalid-escape")
+
+
+def test_reject_two_pending() -> None:
+    with pytest.raises(CheckpointError, match="pending"):
+        load(V0 / "invalid-two-pending")
+
+
+def test_reject_workspace_head_mismatch() -> None:
+    with pytest.raises(CheckpointError, match="workspace_head"):
+        load(V0 / "invalid-head-mismatch")
