@@ -487,11 +487,6 @@ impl Session {
     }
 }
 
-// Lease is released only by close(); Drop must not open a steal window after a panic mid-tool.
-impl Drop for Session {
-    fn drop(&mut self) {}
-}
-
 pub struct SessionView {
     store: Store,
     session_id: SessionId,

@@ -2,7 +2,7 @@ use std::fs;
 use std::time::Duration;
 
 use durable_session::{
-    import_bundle, AssistantDelta, Filter, FinishReason, Input, OpId, OpenOptions, Recovery,
+    import_bundle, AssistantDelta, Error, Filter, FinishReason, Input, OpId, OpenOptions, Recovery,
     Session, SessionId, SessionView, ToolDisposition, ToolPolicy, ToolResult, ToolSpec, WorkerId,
 };
 use serde_json::json;
@@ -18,6 +18,20 @@ fn open_pair(tmp: &tempfile::TempDir, worker: &str) -> (OpenOptions, Session) {
     };
     let session = Session::open(opts.clone()).unwrap();
     (opts, session)
+}
+
+#[test]
+fn drop_does_not_release_lease() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (opts, session) = open_pair(&tmp, "w1");
+    drop(session);
+    let mut other = opts;
+    other.worker = WorkerId::parse("w2").unwrap();
+    match Session::open(other) {
+        Err(Error::LeaseHeld { holder, .. }) => assert_eq!(holder.as_str(), "w1"),
+        Err(e) => panic!("drop released the lease: {e}"),
+        Ok(_) => panic!("drop released the lease"),
+    }
 }
 
 #[test]

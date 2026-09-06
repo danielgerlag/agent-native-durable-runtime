@@ -1,4 +1,4 @@
-//! Agent-native durable session runtime.
+//! Crash-safe agent sessions: transcript, workspace snapshot, and tool ledger.
 
 mod bundle;
 mod error;

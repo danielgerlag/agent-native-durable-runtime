@@ -1,5 +1,3 @@
-//! ~200-line ReAct loop: fake model, idempotent write, at-most-once email.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
