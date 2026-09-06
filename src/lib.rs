@@ -15,6 +15,8 @@ mod workspace;
 pub mod semconv;
 
 pub use error::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
 pub use event::{AssistantDelta, Event, Input, LoggedEvent, Message, ToolCall, ToolCallDelta};
 pub use fault::{Clock, CrashAtNth, Fault, Hooks, ManualClock, PersistOp, SystemClock};
 pub use ids::{
@@ -28,3 +30,4 @@ pub use tool::{
     ToolPolicy, ToolResult, ToolRun, ToolSpec,
 };
 pub use workspace::Filter;
+pub use workspace::Filter as WorkspaceFilter;

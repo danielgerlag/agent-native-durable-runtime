@@ -4,6 +4,7 @@
 *.swp
 /tmp
 /.durable
+/demo-run
 **/*.db
 **/*.db-wal
 **/*.db-shm

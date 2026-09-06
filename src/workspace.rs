@@ -83,8 +83,7 @@ fn sibling_with_suffix(live: &Path, suffix: &str) -> PathBuf {
 }
 
 pub(crate) fn tree_bytes(tree: &Tree) -> Result<Vec<u8>, Error> {
-    let entries = serde_json::Map::new();
-    // Spec example lists `v` then `entries`; keep that field order so hashes are stable.
+    // Object key order is part of the tree hash. Match spec/checkpoint-v0.md: v, then entries.
     let mut root = serde_json::Map::new();
     root.insert("v".into(), serde_json::json!(tree.v));
     let listed: Vec<serde_json::Value> = tree
@@ -101,7 +100,6 @@ pub(crate) fn tree_bytes(tree: &Tree) -> Result<Vec<u8>, Error> {
         })
         .collect();
     root.insert("entries".into(), serde_json::Value::Array(listed));
-    let _ = entries;
     serde_json::to_vec(&serde_json::Value::Object(root)).map_err(|e| Error::store(e.to_string()))
 }
 
