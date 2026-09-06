@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+.DS_Store
+*.swp
+/tmp
+/.durable
+**/*.db
+**/*.db-wal
+**/*.db-shm
