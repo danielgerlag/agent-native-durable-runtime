@@ -66,7 +66,7 @@
     "assistant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "content", "turn", "finish_reason", "tool_calls"],
+      "required": ["role", "content", "turn", "finish_reason", "tool_calls", "model"],
       "properties": {
         "role": { "const": "assistant" },
         "content": { "type": "string" },
@@ -93,7 +93,7 @@
     "tool": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "call_id", "name", "status"],
+      "required": ["role", "call_id", "name", "status", "result_text", "error"],
       "properties": {
         "role": { "const": "tool" },
         "call_id": { "type": "string" },
@@ -108,7 +108,7 @@
     "ledger_row": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["call_id", "tool", "args_hash", "status", "policy"],
+      "required": ["call_id", "tool", "args_hash", "status", "policy", "result_ref"],
       "properties": {
         "call_id": { "type": "string" },
         "tool": { "type": "string" },
